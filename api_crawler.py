@@ -1,30 +1,44 @@
-import requests
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
 
-results = []
+def crawl_linkareer_development_activities(max_page=7):
+    results = []
+    driver = webdriver.Chrome()
+    wait = WebDriverWait(driver, 15)
 
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
-}
+    for page in range(1, max_page + 1):
+        url = f"https://linkareer.com/list/activity?filterBy_q=%EA%B0%9C%EB%B0%9C&filterType=CATEGORY&orderBy_direction=DESC&orderBy_field=CREATED_AT&page={page}"
+        driver.get(url)
 
-for page in range(1, 8):
-    url = f"https://linkareer.com/api/activities?filterBy_q=개발&filterType=CATEGORY&orderBy_direction=DESC&orderBy_field=CREATED_AT&page={page}"
-    print(f"{page}페이지 요청 중...")
-    response = requests.get(url, headers=headers)
+        # "활동 카드" 들이 로드될 때까지 최대 15초 기다림
+        wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "a.image-link")))
+        cards = driver.find_elements(By.CSS_SELECTOR, "a.image-link")
 
-    if response.status_code == 200:
-        data = response.json().get("data", [])
-        for item in data:
-            results.append({
-                "제목": item.get("title", "없음"),
-                "링크": f"https://linkareer.com/detail/{item.get('id')}",
-                "기관명": item.get("company_name", "없음"),
-                "모집기간": item.get("date_display", "없음"),
-                "혜택": item.get("benefit", "없음"),
-            })
-    else:
-        print(f"{page}페이지 에러: {response.status_code}")
+        for card in cards:
+            try:
+                title_elem = card.find_element(By.XPATH, ".//img[@alt]")
+                title = title_elem.get_attribute("alt").strip()
+                detail_url = "https://linkareer.com" + card.get_attribute("href")
 
-df = pd.DataFrame(results)
-df.to_csv("링커리어_API_크롤링.csv", index=False, encoding="utf-8-sig")
-print("✅ API 크롤링 완료! CSV 저장됨.")
+                # 결과 저장 (host, period는 추출 안 되는 경우 빈값 처리)
+                results.append({
+                    "활동명": title,
+                    "주최기관": "",
+                    "모집기간": "",
+                    "상세페이지": detail_url
+                })
+
+            except Exception as e:
+                print(f"Error parsing card: {e}")
+
+    driver.quit()
+    return results
+
+if __name__ == "__main__":
+    data = crawl_linkareer_development_activities(max_page=7)
+    df = pd.DataFrame(data)
+    print(df)
+    df.to_csv("링커리어_개발_활동_크롤링.csv", encoding="utf-8-sig", index=False)
